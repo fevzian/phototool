@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type SrcDirValidator struct {
@@ -10,6 +11,10 @@ type SrcDirValidator struct {
 }
 
 func (s *SrcDirValidator) Validate() error {
+	if strings.TrimSpace(s.DirPath) == "" {
+		return fmt.Errorf("source directory is not specified")
+	}
+
 	dir, err := os.Stat(s.DirPath)
 	if err != nil {
 		return fmt.Errorf("source directory '%s' does not exist: %v", s.DirPath, err)

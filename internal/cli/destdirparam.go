@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type DestDirValidator struct {
@@ -10,6 +11,10 @@ type DestDirValidator struct {
 }
 
 func (s *DestDirValidator) Validate() error {
+	if strings.TrimSpace(s.DirPath) == "" {
+		return fmt.Errorf("destination directory is not specified")
+	}
+
 	dir, err := os.Stat(s.DirPath)
 	if err != nil {
 		return fmt.Errorf("destination directory '%s' does not exist: %v", s.DirPath, err)
