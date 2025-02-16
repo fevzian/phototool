@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -90,6 +91,12 @@ func Process(cmdParams *cli.CmdParams) error {
 
 		// Move the file to the destination directory
 		destPath := filepath.Join(destDir, filepath.Base(filePath))
+		// Check if the file with the same name exists in the destination directory
+		if _, err := os.Stat(destPath); err == nil {
+			// File exists, add a suffix to the file name
+			destPath = addSuffix(destPath, 1)
+		}
+
 		err = os.Rename(filePath, destPath)
 		if err != nil {
 			log.Printf("Error moving file %s to %s: %v\n", filePath, destPath, err)
@@ -121,6 +128,16 @@ func fetchYearMonth(file *os.File) (year int, month string, err error) {
 
 	defer file.Close()
 	return parseTime(dTimeVal)
+}
+
+func addSuffix(filePath string, count int) string {
+	ext := filepath.Ext(filePath)
+	name := strings.TrimSuffix(filePath, ext)
+	newPath := fmt.Sprintf("%s_%d%s", name, count, ext)
+	if _, err := os.Stat(newPath); os.IsNotExist(err) {
+		return newPath
+	}
+	return addSuffix(filePath, count+1)
 }
 
 func parseTime(dateTime string) (year int, month string, err error) {
