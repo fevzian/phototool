@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fevzian/phototool/internal/cli"
+	"github.com/fevzian/phototool/internal/validator"
 	"github.com/rwcarlsen/goexif/exif"
 )
 
@@ -62,9 +62,9 @@ func (s *SortOperation) GetName() string {
 }
 
 func validate(cmdParams *SortParams) error {
-	return cli.Validate([]cli.Validator{
-		&cli.SrcDirValidator{DirPath: cmdParams.SrcDir},
-		&cli.DestDirValidator{DirPath: cmdParams.DestDir},
+	return validator.Validate([]validator.Validator{
+		&validator.SrcDirValidator{DirPath: cmdParams.SrcDir},
+		&validator.DestDirValidator{DirPath: cmdParams.DestDir},
 	})
 }
 

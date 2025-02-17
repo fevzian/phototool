@@ -6,7 +6,12 @@ all: build test
 build: clean
 	@mkdir build
 	@echo "Building..."
-	@go build -o ./build/ cmd/main.go
+	@if [ "$(shell go env GOOS)" = "windows" ]; then \
+		go build -o ./build/phototool.exe cmd/main.go; \
+	else \
+		go build -o ./build/phototool cmd/main.go; \
+	fi
+	@echo "Build complete"
 
 # Run the application
 run:

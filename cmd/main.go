@@ -20,6 +20,13 @@ func main() {
 			SourceDir: *srcDirParam,
 			DestDir:   *destDirParam,
 		})
+	case "exif":
+		params := flag.NewFlagSet("exif", flag.ExitOnError)
+		filePathParam := params.String("file", "", "File path")
+		params.Parse(os.Args[2:])
+		execute(&operation.ReadExifOperation{
+			FilePath: *filePathParam,
+		})
 	default:
 		log.Fatalf("Unknown command: %s", os.Args[1])
 	}
