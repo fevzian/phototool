@@ -6,7 +6,7 @@ all: build test
 build: clean
 	@mkdir build
 	@echo "Building..."
-	@go build -o ./build/photosort.exe cmd/main.go
+	@go build -o ./build/ cmd/main.go
 
 # Run the application
 run:

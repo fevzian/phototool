@@ -4,9 +4,11 @@ type Validator interface {
 	Validate() error
 }
 
-type CmdParams struct {
-	SrcDir  string
-	DestDir string
-	IsCopy  bool
-	GroupBy string
+func Validate(validators []Validator) error {
+	for _, v := range validators {
+		if err := v.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
 }

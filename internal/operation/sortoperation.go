@@ -1,4 +1,4 @@
-package processor
+package operation
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fevzian/photosort/internal/cli"
+	"github.com/fevzian/phototool/internal/cli"
 	"github.com/rwcarlsen/goexif/exif"
 )
 
@@ -34,51 +34,68 @@ var EXTENSIONS = map[string]bool{
 	".3G2":  true,
 }
 
-func Validate(cmdParams *cli.CmdParams) error {
-	var validators = []cli.Validator{
-		&cli.SrcDirValidator{DirPath: cmdParams.SrcDir},
-		&cli.DestDirValidator{DirPath: cmdParams.DestDir},
-		&cli.CopyValidator{IsCopy: cmdParams.IsCopy},
-		&cli.GroupByValidator{GroupBy: cmdParams.GroupBy},
-	}
-
-	for _, v := range validators {
-		if err := v.Validate(); err != nil {
-			log.Fatalf("Error validating: %v", err)
-		}
-	}
-
-	return nil
+type SortParams struct {
+	SrcDir  string
+	DestDir string
 }
 
-func Process(cmdParams *cli.CmdParams) error {
-	log.Println("Processing...", cmdParams)
+type SortOperation struct {
+	SourceDir string
+	DestDir   string
+}
 
-	files, err := os.ReadDir(cmdParams.SrcDir)
-	if err != nil {
-		log.Fatalf("Error reading source directory: %v", err)
+func (s *SortOperation) Execute() error {
+	params := &SortParams{
+		SrcDir:  s.SourceDir,
+		DestDir: s.DestDir,
 	}
+	err := validate(params)
+	if err != nil {
+		log.Printf("Validation failed: %v", err)
+		return err
+	}
+	return process(params)
+}
 
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
+func (s *SortOperation) GetName() string {
+	return "sort"
+}
 
-		fileExt := strings.ToUpper(filepath.Ext(file.Name()))
-		if !EXTENSIONS[fileExt] {
-			continue
-		}
+func validate(cmdParams *SortParams) error {
+	return cli.Validate([]cli.Validator{
+		&cli.SrcDirValidator{DirPath: cmdParams.SrcDir},
+		&cli.DestDirValidator{DirPath: cmdParams.DestDir},
+	})
+}
 
-		filePath := filepath.Join(cmdParams.SrcDir, file.Name())
-		file, err := os.Open(filePath)
+func process(cmdParams *SortParams) error {
+	log.Println("Processing...", cmdParams)
+	var count = 0
+	err := filepath.Walk(cmdParams.SrcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			log.Fatalf("Error opening file: %v\n", err)
+			return err
 		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		fileExt := strings.ToUpper(filepath.Ext(info.Name()))
+		if !EXTENSIONS[fileExt] {
+			return nil
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			log.Printf("Error opening file: %v\n", err)
+			return nil
+		}
+		defer file.Close()
 
 		year, month, err := fetchYearMonth(file)
 		if err != nil {
-			log.Printf("Error parsing date for file %s: %v\n", filePath, err)
-			continue
+			log.Printf("Error parsing date for file %s: %v\n", path, err)
+			return nil
 		}
 
 		// Create the destination directory if it does not exist
@@ -86,24 +103,34 @@ func Process(cmdParams *cli.CmdParams) error {
 		err = os.MkdirAll(destDir, os.ModePerm)
 		if err != nil {
 			log.Printf("Error creating directory %s: %v\n", destDir, err)
-			continue
+			return nil
 		}
 
 		// Move the file to the destination directory
-		destPath := filepath.Join(destDir, filepath.Base(filePath))
+		destPath := filepath.Join(destDir, filepath.Base(path))
 		// Check if the file with the same name exists in the destination directory
 		if _, err := os.Stat(destPath); err == nil {
 			// File exists, add a suffix to the file name
 			destPath = addSuffix(destPath, 1)
 		}
 
-		err = os.Rename(filePath, destPath)
+		err = os.Rename(path, destPath)
 		if err != nil {
-			log.Printf("Error moving file %s to %s: %v\n", filePath, destPath, err)
-			continue
+			log.Printf("Error moving file %s to %s: %v\n", path, destPath, err)
+			return nil
 		}
-		log.Println("Moved file", filePath, "to", destPath)
+		count++
+		log.Println("Moved file", path, "to", destPath)
+
+		return nil
+	})
+
+	if err != nil {
+		log.Fatalf("Error walking the path %s: %v", cmdParams.SrcDir, err)
 	}
+
+	log.Println("Processed", count, "files")
+
 	return nil
 }
 
