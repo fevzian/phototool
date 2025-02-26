@@ -1,6 +1,7 @@
 package operation
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,25 +14,30 @@ import (
 	"github.com/rwcarlsen/goexif/exif"
 )
 
-var EXTENSIONS = map[string]bool{
-	".JPG":  true,
-	".JPEG": true,
-	".PNG":  true,
-	".GIF":  true,
-	".TIFF": true,
-	".BMP":  true,
-	".HEIC": true,
-	".MP4":  true,
-	".MOV":  true,
-	".AVI":  true,
-	".MKV":  true,
-	".WEBM": true,
-	".FLV":  true,
-	".WMV":  true,
-	".MPG":  true,
-	".MPEG": true,
-	".3GP":  true,
-	".3G2":  true,
+type nothing struct{}
+
+var nothing_value = nothing{}
+
+var EXTENSIONS = map[string]nothing{
+	".JPG":  nothing_value,
+	".JPEG": nothing_value,
+	".PNG":  nothing_value,
+	".GIF":  nothing_value,
+	".TIFF": nothing_value,
+	".BMP":  nothing_value,
+	".HEIC": nothing_value,
+	".MP4":  nothing_value,
+	".MP":   nothing_value,
+	".MOV":  nothing_value,
+	".AVI":  nothing_value,
+	".MKV":  nothing_value,
+	".WEBM": nothing_value,
+	".FLV":  nothing_value,
+	".WMV":  nothing_value,
+	".MPG":  nothing_value,
+	".MPEG": nothing_value,
+	".3GP":  nothing_value,
+	".3G2":  nothing_value,
 }
 
 type SortParams struct {
@@ -42,6 +48,59 @@ type SortParams struct {
 type SortOperation struct {
 	SourceDir string
 	DestDir   string
+}
+
+type FileDateTimeExtractor interface {
+	extractDateTime(file *os.File) (value *time.Time, err error)
+}
+
+type ExifDateTimeExtractor struct {
+}
+
+type FilenameDateTimeExtractor struct {
+}
+
+func (extractor *FilenameDateTimeExtractor) extractDateTime(file *os.File) (value *time.Time, err error) {
+	ext := filepath.Ext(file.Name())
+	name := filepath.Base(strings.TrimSuffix(file.Name(), ext))
+
+	log.Printf("Filename: '%s'", name)
+	parts := splitAny(name, "_-")
+
+	for _, part := range parts {
+		parsed, err := time.Parse("20060102", part)
+		if err == nil {
+			return &parsed, nil
+		} else {
+			log.Printf("Error parsing date from part='%s': %v", part, err)
+		}
+	}
+	return nil, errors.New("not Implemented yet")
+}
+
+func (ext *ExifDateTimeExtractor) extractDateTime(file *os.File) (value *time.Time, err error) {
+	exifData, err := exif.Decode(file)
+	if err != nil {
+		log.Printf("Error decoding exif data for file '%s': %v", file.Name(), err)
+		return nil, err
+	}
+
+	dateTaken, err := exifData.Get(exif.DateTimeOriginal)
+	if err != nil {
+		log.Printf("Error getting '%s' tag: %v", exif.DateTimeOriginal, err)
+		return nil, err
+	}
+
+	dTimeVal, err := dateTaken.StringVal()
+	if err != nil {
+		log.Printf("Error getting string value for '%s' tag: %v", exif.DateTimeOriginal, err)
+		return nil, err
+	}
+	parsed, err := time.Parse("2006:01:02 15:04:05", dTimeVal)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
 }
 
 func (s *SortOperation) Execute() error {
@@ -81,7 +140,9 @@ func process(cmdParams *SortParams) error {
 		}
 
 		fileExt := strings.ToUpper(filepath.Ext(info.Name()))
-		if !EXTENSIONS[fileExt] {
+		_, ok := EXTENSIONS[fileExt]
+		if !ok {
+			log.Println("Not supported file type: ", info.Name())
 			return nil
 		}
 
@@ -135,42 +196,31 @@ func process(cmdParams *SortParams) error {
 }
 
 func fetchYearMonth(file *os.File) (year int, month string, err error) {
-	exifData, err := exif.Decode(file)
-	if err != nil {
-		log.Printf("Error decoding exif data for file '%s': %v", file.Name(), err)
-		return 0, "", err
-	}
+	extractors := make([]FileDateTimeExtractor, 2)
+	extractors[0] = &ExifDateTimeExtractor{}
+	extractors[1] = &FilenameDateTimeExtractor{}
 
-	dateTaken, err := exifData.Get(exif.DateTimeOriginal)
-	if err != nil {
-		log.Printf("Error getting '%s' tag: %v", exif.DateTimeOriginal, err)
-		return 0, "", err
+	for _, ext := range extractors {
+		if parsedTime, err := ext.extractDateTime(file); err == nil {
+			return parsedTime.Year(), parsedTime.Month().String()[:3], nil
+		}
 	}
-
-	dTimeVal, err := dateTaken.StringVal()
-	if err != nil {
-		log.Printf("Error getting string value for '%s' tag: %v", exif.DateTimeOriginal, err)
-		return 0, "", err
-	}
-
-	defer file.Close()
-	return parseTime(dTimeVal)
+	return -1, "", fmt.Errorf("date could not be extracted from '%s'", file.Name())
 }
 
 func addSuffix(filePath string, count int) string {
 	ext := filepath.Ext(filePath)
-	name := strings.TrimSuffix(filePath, ext)
-	newPath := fmt.Sprintf("%s_%d%s", name, count, ext)
+	filePathWithoutExt := strings.TrimSuffix(filePath, ext)
+	newPath := fmt.Sprintf("%s_%d%s", filePathWithoutExt, count, ext)
 	if _, err := os.Stat(newPath); os.IsNotExist(err) {
 		return newPath
 	}
 	return addSuffix(filePath, count+1)
 }
 
-func parseTime(dateTime string) (year int, month string, err error) {
-	parsedDateTime, err := time.Parse("2006:01:02 15:04:05", dateTime)
-	if err != nil {
-		return 0, "", err
+func splitAny(s string, seps string) []string {
+	splitter := func(r rune) bool {
+		return strings.ContainsRune(seps, r)
 	}
-	return parsedDateTime.Year(), parsedDateTime.Month().String()[:3], nil
+	return strings.FieldsFunc(s, splitter)
 }
