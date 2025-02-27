@@ -1,8 +1,8 @@
 package operation
 
 import (
-	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fevzian/phototool/internal/operation/extractor"
 	"github.com/fevzian/phototool/internal/validator"
-	"github.com/rwcarlsen/goexif/exif"
 )
 
 type nothing struct{}
@@ -50,59 +50,6 @@ type SortOperation struct {
 	DestDir   string
 }
 
-type FileDateTimeExtractor interface {
-	extractDateTime(file *os.File) (value *time.Time, err error)
-}
-
-type ExifDateTimeExtractor struct {
-}
-
-type FilenameDateTimeExtractor struct {
-}
-
-func (extractor *FilenameDateTimeExtractor) extractDateTime(file *os.File) (value *time.Time, err error) {
-	ext := filepath.Ext(file.Name())
-	name := filepath.Base(strings.TrimSuffix(file.Name(), ext))
-
-	log.Printf("Filename: '%s'", name)
-	parts := splitAny(name, "_-")
-
-	for _, part := range parts {
-		parsed, err := time.Parse("20060102", part)
-		if err == nil {
-			return &parsed, nil
-		} else {
-			log.Printf("Error parsing date from part='%s': %v", part, err)
-		}
-	}
-	return nil, errors.New("not Implemented yet")
-}
-
-func (ext *ExifDateTimeExtractor) extractDateTime(file *os.File) (value *time.Time, err error) {
-	exifData, err := exif.Decode(file)
-	if err != nil {
-		log.Printf("Error decoding exif data for file '%s': %v", file.Name(), err)
-		return nil, err
-	}
-
-	dateTaken, err := exifData.Get(exif.DateTimeOriginal)
-	if err != nil {
-		log.Printf("Error getting '%s' tag: %v", exif.DateTimeOriginal, err)
-		return nil, err
-	}
-
-	dTimeVal, err := dateTaken.StringVal()
-	if err != nil {
-		log.Printf("Error getting string value for '%s' tag: %v", exif.DateTimeOriginal, err)
-		return nil, err
-	}
-	parsed, err := time.Parse("2006:01:02 15:04:05", dTimeVal)
-	if err != nil {
-		return nil, err
-	}
-	return &parsed, nil
-}
-
 func (s *SortOperation) Execute() error {
 	params := &SortParams{
 		SrcDir:  s.SourceDir,
@@ -139,8 +86,8 @@ func process(cmdParams *SortParams) error {
 			return nil
 		}
 
-		fileExt := strings.ToUpper(filepath.Ext(info.Name()))
-		_, ok := EXTENSIONS[fileExt]
+		ext := filepath.Ext(info.Name())
+		_, ok := EXTENSIONS[strings.ToUpper(ext)]
 		if !ok {
 			log.Println("Not supported file type: ", info.Name())
 			return nil
@@ -152,12 +99,15 @@ func process(cmdParams *SortParams) error {
 			return nil
 		}
 		defer file.Close()
+		defer log.Println("-----------------------------------")
 
-		year, month, err := fetchYearMonth(file)
+		log.Printf("Filename: '%s'", file.Name())
+		dateTime, err := parseDateTime(file)
 		if err != nil {
 			log.Printf("Error parsing date for file %s: %v\n", path, err)
 			return nil
 		}
+		year, month := parseYearMonth(dateTime)
 
 		// Create the destination directory if it does not exist
 		destDir := filepath.Join(cmdParams.DestDir, strconv.Itoa(year), month)
@@ -168,7 +118,15 @@ func process(cmdParams *SortParams) error {
 		}
 
 		// Move the file to the destination directory
-		destPath := filepath.Join(destDir, filepath.Base(path))
+		//var newFileName string
+		//if time is not available
+		// if !hasTimePart(dateTime) {
+		// 	newFileName = fmt.Sprintf("%s_%s", dateTime.Format("2006-01-02"), strconv.FormatInt(time.Now().UnixMicro(), 10))
+		// } else {
+		// 	newFileName = dateTime.Format("2006-01-02_150405")
+		// }
+		destPath := filepath.Join(destDir, fmt.Sprintf("%s%s", dateTime.Format("2006-01-02_150405"), ext))
+
 		// Check if the file with the same name exists in the destination directory
 		if _, err := os.Stat(destPath); err == nil {
 			// File exists, add a suffix to the file name
@@ -183,6 +141,7 @@ func process(cmdParams *SortParams) error {
 		count++
 		log.Println("Moved file", path, "to", destPath)
 
+		removeEmptyDirs(cmdParams.SrcDir)
 		return nil
 	})
 
@@ -195,17 +154,25 @@ func process(cmdParams *SortParams) error {
 	return nil
 }
 
-func fetchYearMonth(file *os.File) (year int, month string, err error) {
-	extractors := make([]FileDateTimeExtractor, 2)
-	extractors[0] = &ExifDateTimeExtractor{}
-	extractors[1] = &FilenameDateTimeExtractor{}
+func hasTimePart(dateTime *time.Time) bool {
+	return dateTime != nil && dateTime.Hour() > 0 && dateTime.Minute() > 0 && dateTime.Second() > 0
+}
+
+func parseDateTime(file *os.File) (dateTime *time.Time, err error) {
+	extractors := make([]extractor.FileDateTimeExtractor, 2)
+	extractors[0] = &extractor.ExifDateTimeExtractor{}
+	extractors[1] = &extractor.FilenameDateTimeExtractor{}
 
 	for _, ext := range extractors {
-		if parsedTime, err := ext.extractDateTime(file); err == nil {
-			return parsedTime.Year(), parsedTime.Month().String()[:3], nil
+		if dateTime, err := ext.ExtractDateTime(file); err == nil {
+			return dateTime, nil
 		}
 	}
-	return -1, "", fmt.Errorf("date could not be extracted from '%s'", file.Name())
+	return nil, fmt.Errorf("date could not be extracted from '%s'", file.Name())
+}
+
+func parseYearMonth(dateTime *time.Time) (year int, month string) {
+	return dateTime.Year(), dateTime.Month().String()[:3]
 }
 
 func addSuffix(filePath string, count int) string {
@@ -218,9 +185,60 @@ func addSuffix(filePath string, count int) string {
 	return addSuffix(filePath, count+1)
 }
 
-func splitAny(s string, seps string) []string {
-	splitter := func(r rune) bool {
-		return strings.ContainsRune(seps, r)
+func removeEmptyDirs(root string) error {
+	isEmpty, err := isDirEmpty(root)
+	if err != nil {
+		return err
 	}
-	return strings.FieldsFunc(s, splitter)
+	if isEmpty {
+		err = os.Remove(root)
+		if err != nil {
+			return err
+		}
+		log.Println("Removed empty directory", root)
+		return nil
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			err = removeEmptyDirs(filepath.Join(root, entry.Name()))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Check again if the directory is empty after removing subdirectories
+	isEmpty, err = isDirEmpty(root)
+	if err != nil {
+		return err
+	}
+	if isEmpty {
+		err = os.Remove(root)
+		if err != nil {
+			return err
+		}
+		log.Println("Removed empty directory", root)
+	}
+
+	return nil
+}
+
+func isDirEmpty(dir string) (bool, error) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	_, err = f.Readdirnames(1) // Or f.Readdir(1)
+	if err == io.EOF {
+		return true, nil
+	}
+	return false, err
 }
