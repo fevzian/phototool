@@ -62,7 +62,7 @@ func (finder *singleWordDateTimeFinder) findDateTime(words []string) (value *tim
 }
 
 // Tries to parse a concatanation of array string elements joined by '_' char in the following way:
-// It cuts the right and left ends of the array one by one
+// It cuts the right and left ends of the array one by one until a single word is left
 func (finder *backForwardDateTimeFinder) findDateTime(words []string) (value *time.Time, err error) {
 	head := 0
 	tail := len(words)

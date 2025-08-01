@@ -1,11 +1,10 @@
 package operation
 
 import (
+	"errors"
 	"log"
-	"os"
 
-	"github.com/rwcarlsen/goexif/exif"
-	"github.com/rwcarlsen/goexif/tiff"
+	exif "github.com/barasher/go-exiftool"
 )
 
 type Walker struct{}
@@ -16,31 +15,29 @@ type ReadExifOperation struct {
 
 // Execute method for ReadExifOperation
 func (r *ReadExifOperation) Execute() error {
-	file, err := os.Open(r.FilePath)
+	et, err := exif.NewExiftool()
 	if err != nil {
-		log.Fatalf("failed to open image file: %v", err)
+		log.Printf("Error when intializing: %v\n", err)
+		return errors.New("no metadata found")
 	}
-	defer file.Close()
+	defer et.Close()
 
-	// Decode EXIF data
-	x, err := exif.Decode(file)
-	if err != nil {
-		log.Fatalf("failed to decode EXIF data: %v", err)
+	fileInfos := et.ExtractMetadata(r.FilePath)
+
+	for _, fileInfo := range fileInfos {
+		if fileInfo.Err != nil {
+			log.Printf("Error concerning %v: %v\n", fileInfo.File, fileInfo.Err)
+			continue
+		}
+
+		for k, v := range fileInfo.Fields {
+			log.Printf("[%v] %v\n", k, v)
+		}
 	}
-
-	// Print EXIF data
-	x.Walk(&Walker{})
-
 	return nil
 }
 
 // GetName method for ReadExifOperation
 func (r *ReadExifOperation) GetName() string {
 	return "exif"
-}
-
-func (w *Walker) Walk(name exif.FieldName, tag *tiff.Tag) error {
-	data, _ := tag.MarshalJSON()
-	log.Printf("    %v: %v\n", name, string(data))
-	return nil
 }

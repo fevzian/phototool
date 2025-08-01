@@ -154,10 +154,6 @@ func process(cmdParams *SortParams) error {
 	return nil
 }
 
-func hasTimePart(dateTime *time.Time) bool {
-	return dateTime != nil && dateTime.Hour() > 0 && dateTime.Minute() > 0 && dateTime.Second() > 0
-}
-
 func parseDateTime(file *os.File) (dateTime *time.Time, err error) {
 	extractors := make([]extractor.FileDateTimeExtractor, 2)
 	extractors[0] = &extractor.ExifDateTimeExtractor{}

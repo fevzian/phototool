@@ -1,12 +1,22 @@
 # Project photosort
 
-One Paragraph of project description goes here
+## Description
+Let's organize photos according dates. Provides various functions such as sort, exif, etc.
 
-## Getting Started
+## Prerequisites
+exif-tool is required to be installed inside oprating system.
 
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
+For debian based linux: sudo apt install exiftool
+For windows based os:   refer to https://exiftool.org/install.html 
 
-## MakeFile
+## Sorting command
+phototool sort --src_dir <source_dir_path> --dest_dir <destination_dir_path>
+
+## All metadata for a spacific image
+phototool exif --file <file_path>
+
+
+## Building
 
 Run build make command with tests
 ```bash
